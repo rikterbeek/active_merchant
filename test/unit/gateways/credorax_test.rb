@@ -223,6 +223,15 @@ class CredoraxTest < Test::Unit::TestCase
     end.respond_with(successful_purchase_response)
   end
 
+  def test_can_request_three_ds
+    options_with_3ds = @options.merge({three_d_secure: true, xid: '123456678901234567890'})
+    stub_comms do
+      @gateway.purchase(@amount, @credit_card, options_with_3ds)
+    end.check_request do |endpoint, data, headers|
+      
+    end.respond_with(successful_purchase_response)
+  end
+
   def test_supports_billing_descriptor
     @options[:billing_descriptor] = 'abcdefghijkl'
     stub_comms do

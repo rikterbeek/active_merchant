@@ -5,7 +5,7 @@ class RemoteCredoraxTest < Test::Unit::TestCase
     @gateway = CredoraxGateway.new(fixtures(:credorax))
 
     @amount = 100
-    @credit_card = credit_card('4176661000001015', verification_value: '281', month: '12', year: '2022')
+    @credit_card = credit_card('5186150000002228', verification_value: '222', month: '12', year: '2025')
     @declined_card = credit_card('4176661000001111', verification_value: '681', month: '12', year: '2022')
     @options = {
       order_id: '1',
@@ -30,6 +30,14 @@ class RemoteCredoraxTest < Test::Unit::TestCase
 
   def test_successful_purchase_with_extra_options
     response = @gateway.purchase(@amount, @credit_card, @options.merge(transaction_type: '10'))
+    assert_success response
+    assert_equal '1', response.params['H9']
+    assert_equal 'Succeeded', response.message
+  end
+
+  def test_successful_3ds_purchase_for_unenrolled_card
+    xid = String.new.tap { |s| 20.times { s << Random.rand(10).to_s }}
+    response = @gateway.purchase(@amount, @credit_card, @options.merge(three_d_secure: 'true', xid: xid, purchase_desc: 'yo dawg i like cheese'))
     assert_success response
     assert_equal '1', response.params['H9']
     assert_equal 'Succeeded', response.message

@@ -1,3 +1,5 @@
+require 'nokogiri'
+
 module ActiveMerchant #:nodoc:
   module Billing #:nodoc:
     class CredoraxGateway < Gateway
@@ -14,6 +16,11 @@ module ActiveMerchant #:nodoc:
       # Once you have your assigned subdomain, you can override the live URL in your application via:
       # ActiveMerchant::Billing::CredoraxGateway.live_url = "https://assigned-subdomain.credorax.net/crax_gate/service/gateway"
       self.live_url = 'https://assigned-subdomain.credorax.net/crax_gate/service/gateway'
+
+
+      class_attribute :test_mpi_url, :live_mpi_url
+      self.test_mpi_url = 'https://int3ds.credorax.com/API/'
+      self.live_mpi_url = ''
 
       self.supported_countries = %w(DE GB FR IT ES PL NL BE GR CZ PT SE HU RS AT CH BG DK FI SK NO IE HR BA AL LT MK SI LV EE ME LU MT IS AD MC LI SM)
       self.default_currency = 'EUR'
@@ -116,12 +123,18 @@ module ActiveMerchant #:nodoc:
         'R3' => 'Revocation of all Authorisations Order'
       }
 
+      CURRENCY_CODE = {
+        'EUR' => '978'
+      }
+
       def initialize(options={})
         requires!(options, :merchant_id, :cipher_key)
         super
       end
 
       def purchase(amount, payment_method, options={})
+        return purchase_3ds(amount, payment_method, options) if options[:three_d_secure]
+
         post = {}
         add_invoice(post, amount, options)
         add_payment_method(post, payment_method)
@@ -213,6 +226,53 @@ module ActiveMerchant #:nodoc:
       end
 
       private
+
+      def purchase_3ds(amount, payment_method, options={})
+        enrollment = check_3ds_enrollment(amount, payment_method, options)
+        if enrollment.at_xpath('//enrolled') == 'Y'
+          # uh...return...stuff? I think?
+        else
+          options = options.dup
+          options.delete(:three_d_secure)
+          purchase(amount, payment_method, options)
+        end
+      end
+
+      def check_3ds_enrollment(amount, payment_method, options)
+        currency = CURRENCY_CODE[options[:currency] || currency(money)] || options[:currency_code] || '978'  # FIXME THIS LOGIC IS PROBABLY BROKEN; PROBABLY SHOULD CHECK CODE ONLY
+
+        builder = Nokogiri::XML::Builder.new do |xml|
+          xml.Message do
+            xml.EnrolReq do
+              xml.MerchantID @options[:mpi_merchant_id]
+              xml.MerchantName @options[:mpi_merchant_name]
+              xml.Password @options[:mpi_password]
+              xml.CardNumber payment_method.number
+              xml.ExpYear format(payment_method.year, :four_digits)
+              xml.ExpMonth format(payment_method.month, :two_digits)
+              xml.TotalAmount amount
+              xml.XID options[:xid]
+              xml.Currency currency
+              xml.PurchaseDesc options[:mpi_purchase_desc]
+            end
+          end
+        end
+
+        commit_mpi(builder.to_xml)
+      end
+
+      def authorize_3ds_card(pa_res)
+        builder = Nokogiri::XML::Builder.new do |xml|
+          xml.Message do
+            xml.AuthReq do
+              xml.Password @options[:mpi_password]
+              xml.PaRes pa_res
+            end
+          end
+        end
+
+        commit_mpi(builder.to_xml)
+      end
 
       def add_invoice(post, money, options)
         currency = options[:currency] || currency(money)
@@ -309,6 +369,11 @@ module ActiveMerchant #:nodoc:
         )
       end
 
+      def commit_mpi(doc)
+        raw_response = ssl_post(mpi_url, doc, 'Content-Type' => 'text/xml')
+        response = Nokogiri::XML(raw_response)
+      end
+
       def sign_request(params)
         params = params.sort
         params.each { |param| param[1].gsub!(/[<>()\\]/, ' ') }
@@ -334,6 +399,10 @@ module ActiveMerchant #:nodoc:
 
       def url
         test? ? test_url : live_url
+      end
+
+      def mpi_url
+        test? ? test_mpi_url : live_mpi_url
       end
 
       def parse(body)
