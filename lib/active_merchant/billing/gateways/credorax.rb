@@ -239,7 +239,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def check_3ds_enrollment(amount, payment_method, options)
-        currency = CURRENCY_CODE[options[:currency] || currency(money)] || options[:currency_code] || '978'  # FIXME THIS LOGIC IS PROBABLY BROKEN; PROBABLY SHOULD CHECK CODE ONLY
+        currency = options[:currency_code] || '978'  # EUR
 
         builder = Nokogiri::XML::Builder.new do |xml|
           xml.Message do
