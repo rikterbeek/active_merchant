@@ -133,7 +133,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def purchase(amount, payment_method, options={})
-        return purchase_3ds(amount, payment_method, options) if options[:three_d_secure]
+        return authorize_3ds(amount, payment_method, options, :purchase) if options[:three_d_secure]
 
         post = {}
         add_invoice(post, amount, options)
@@ -149,6 +149,8 @@ module ActiveMerchant #:nodoc:
       end
 
       def authorize(amount, payment_method, options={})
+        return authorize_3ds(amount, payment_method, options, :authorize) if options[:three_d_secure]
+
         post = {}
         add_invoice(post, amount, options)
         add_payment_method(post, payment_method)
@@ -227,14 +229,14 @@ module ActiveMerchant #:nodoc:
 
       private
 
-      def purchase_3ds(amount, payment_method, options={})
-        enrollment = check_3ds_enrollment(amount, payment_method, options)
-        if enrollment.at_xpath('//enrolled') == 'Y'
-          # uh...return...stuff? I think?
+      def authorize_3ds(amount, payment_method, options={}, action)
+        response = check_3ds_enrollment(amount, payment_method, options)
+        if response.params[:enrolled]
+          response
         else
           options = options.dup
           options.delete(:three_d_secure)
-          purchase(amount, payment_method, options)
+          send(action, amount, payment_method, options)
         end
       end
 
@@ -258,7 +260,7 @@ module ActiveMerchant #:nodoc:
           end
         end
 
-        commit_mpi(builder.to_xml)
+        commit_mpi(builder.to_xml, options)
       end
 
       def authorize_3ds_card(pa_res)
@@ -369,9 +371,19 @@ module ActiveMerchant #:nodoc:
         )
       end
 
-      def commit_mpi(doc)
+      def commit_mpi(doc, options = {})
         raw_response = ssl_post(mpi_url, doc, 'Content-Type' => 'text/xml')
-        response = Nokogiri::XML(raw_response)
+        response = parse_mpi(raw_response)
+
+        Response.new(
+          mpi_success_from(response),
+          mpi_message_from(response),
+          response,
+          authorization: options[:xid],
+          avs_result: nil,
+          cvv_result: nil,
+          test: test?
+        )
       end
 
       def sign_request(params)
@@ -407,6 +419,27 @@ module ActiveMerchant #:nodoc:
 
       def parse(body)
         Hash[CGI::parse(body).map{|k,v| [k.upcase,v.first]}]
+      end
+
+      def parse_mpi(body)
+        xml = Nokogiri::XML(body)
+
+        {
+          enrolled: xml.at_xpath('//ErrorMessage')&.text == 'Y',
+          status_code: xml.at_xpath('//Code').text,
+          error_message: xml.at_xpath('//ErrorMessage')&.text,
+          error_detail: xml.at_xpath('//ErrorDetail')&.text,
+          acs_url: xml.at_xpath('//ACSURL')&.text,
+          pa_req: xml.at_xpath('//PaReq')&.text,
+        }
+      end
+
+      def mpi_success_from(response)
+        response[:status_code].empty? || response[:status_code] == '1109'  # not enrolled
+      end
+
+      def mpi_message_from(response)
+        "#{response[:error_message]}: #{response[:error_detail]}"
       end
 
       def success_from(response)
