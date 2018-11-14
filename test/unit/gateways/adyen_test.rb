@@ -254,7 +254,7 @@ class AdyenTest < Test::Unit::TestCase
     response = stub_comms do
       @gateway.authorize(@amount, @apple_pay_card, @options)
     end.check_request do |endpoint, data, headers|
-      assert_equal 'Not Provided', JSON.parse(data)['card']['holderName']
+      assert_equal 'Not Provided', JSON.parse(data)['paymentMethod']['holderName']
     end.respond_with(successful_authorize_response)
     assert_success response
   end
