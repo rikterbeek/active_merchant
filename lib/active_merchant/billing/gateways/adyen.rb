@@ -9,7 +9,26 @@ module ActiveMerchant #:nodoc:
       self.supported_countries = %w(AT AU BE BG BR CH CY CZ DE DK EE ES FI FR GB GI GR HK HU IE IS IT LI LT LU LV MC MT MX NL NO PL PT RO SE SG SK SI US)
       self.default_currency = 'USD'
       self.currencies_without_fractions = %w(CVE DJF GNF IDR JPY KMF KRW PYG RWF UGX VND VUV XAF XOF XPF)
-      self.supported_cardtypes = %i[visa master american_express diners_club jcb dankort maestro discover elo naranja cabal unionpay]
+
+
+      CARD_BRANDS = {
+        visa:               'visa',
+        master:             'mc',
+        elo:                'elo',
+        alelo:              'alelo',
+        discover:           'discover',
+        american_express:   'amex',
+        naranja:            'naranja',
+        diners_club:        'diners',
+        jcb:                'jcb',
+        dankort:            'dankort',
+        maestro:            'maestro',
+        forbrugsforeningen: 'forbrugsforeningen',
+        cabal:              'cabal',
+        unionpay:           'unionpay',
+        carnet:             'carnet'
+      }.freeze
+      self.supported_cardtypes = CARD_BRANDS.keys
 
       self.money_format = :cents
 
@@ -200,8 +219,6 @@ module ActiveMerchant #:nodoc:
         post[:shopperIP] = options[:shopper_ip] if options[:shopper_ip]
         post[:shopperStatement] = options[:shopper_statement] if options[:shopper_statement]
         post[:fraudOffset] = options[:fraud_offset] if options[:fraud_offset]
-        post[:selectedBrand] = options[:selected_brand] if options[:selected_brand]
-        post[:selectedBrand] ||= NETWORK_TOKENIZATION_CARD_SOURCE[payment.source.to_s] if payment.is_a?(NetworkTokenizationCreditCard)
         post[:deliveryDate] = options[:delivery_date] if options[:delivery_date]
         post[:merchantOrderReference] = options[:merchant_order_reference] if options[:merchant_order_reference]
         post[:captureDelayHours] = options[:capture_delay_hours] if options[:capture_delay_hours]
@@ -215,8 +232,15 @@ module ActiveMerchant #:nodoc:
         post[:additionalData][:updateShopperStatement] = options[:update_shopper_statement] if options[:update_shopper_statement]
         post[:additionalData][:RequestedTestAcquirerResponseCode] = options[:requested_test_acquirer_response_code] if options[:requested_test_acquirer_response_code] && test?
         post[:deviceFingerprint] = options[:device_fingerprint] if options[:device_fingerprint]
+        add_selected_brand(payment)
         add_risk_data(post, options)
         add_shopper_reference(post, options)
+      end
+
+      def add_selected_brand(payment)
+        post[:selectedBrand] = CARD_BRANDS[payment.brand.to_sym]
+        post[:selectedBrand] = options[:selected_brand] if options[:selected_brand]
+        post[:selectedBrand] ||= NETWORK_TOKENIZATION_CARD_SOURCE[payment.source.to_s] if payment.is_a?(NetworkTokenizationCreditCard)
       end
 
       def add_risk_data(post, options)
